@@ -8,16 +8,16 @@ import pytest
 
 
 @pytest.fixture(scope='module')
-def target_data(db_connection):
-    target_query = """
+def source_data(db_connection):
+    source_query = """
     SELECT ...
     """
-    target_data = db_connection.get_data_sql(target_query)
-    return target_data
+    source_data = db_connection.get_data_sql(source_query)
+    return source_data
 
 
 @pytest.fixture(scope='module')
-def source_data(parquet_reader):
+def target_data(parquet_reader):
     target_path = '/root/path/to/file'
     target_data = parquet_reader.process(target_path)
     return target_data
