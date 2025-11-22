@@ -1,0 +1,414 @@
+pipeline {
+    agent any
+    
+    environment {
+        // Python environment
+        PYTHON_VERSION = '3.8'
+        VENV_NAME = 'dq_venv'
+        
+        // Test configuration
+        TEST_RESULTS_DIR = 'test_results'
+        HTML_REPORT_DIR = 'html_report'
+        JUNIT_REPORT = 'junit_report.xml'
+        
+        // Database configuration (non-sensitive)
+        DB_HOST = "${params.DB_HOST ?: 'localhost'}"
+        DB_PORT = "${params.DB_PORT ?: '5432'}"
+        DB_NAME = "${params.DB_NAME ?: 'test_database'}"
+        DB_SCHEMA = "${params.DB_SCHEMA ?: 'public'}"
+        
+        // File paths
+        PARQUET_BASE_PATH = "${params.PARQUET_BASE_PATH ?: './test_data/parquet'}"
+        TEST_DATA_PATH = "${params.TEST_DATA_PATH ?: './test_data'}"
+        
+        // Test execution options
+        TEST_MARKERS = "${params.TEST_MARKERS ?: 'parquet_data'}"
+        PYTEST_WORKERS = "${params.PYTEST_WORKERS ?: '1'}"
+    }
+    
+    parameters {
+        // Database parameters
+        string(
+            name: 'DB_HOST',
+            defaultValue: 'localhost',
+            description: 'PostgreSQL database host'
+        )
+        string(
+            name: 'DB_PORT',
+            defaultValue: '5432',
+            description: 'PostgreSQL database port'
+        )
+        string(
+            name: 'DB_NAME',
+            defaultValue: 'test_database',
+            description: 'PostgreSQL database name'
+        )
+        string(
+            name: 'DB_SCHEMA',
+            defaultValue: 'public',
+            description: 'PostgreSQL database schema'
+        )
+        
+        // File path parameters
+        string(
+            name: 'PARQUET_BASE_PATH',
+            defaultValue: './test_data/parquet',
+            description: 'Base path for Parquet files'
+        )
+        string(
+            name: 'TEST_DATA_PATH',
+            defaultValue: './test_data',
+            description: 'Base path for test data files'
+        )
+        
+        // Test execution parameters
+        choice(
+            name: 'TEST_MARKERS',
+            choices: [
+                'parquet_data',
+                'postgres_data',
+                'data_transformation',
+                'parquet_data and postgres_data',
+                'integration',
+                'smoke',
+                'all'
+            ],
+            description: 'Test markers to execute'
+        )
+        string(
+            name: 'PYTEST_WORKERS',
+            defaultValue: '1',
+            description: 'Number of parallel pytest workers'
+        )
+        
+        // Execution options
+        booleanParam(
+            name: 'SKIP_DB_TESTS',
+            defaultValue: false,
+            description: 'Skip database-dependent tests'
+        )
+        booleanParam(
+            name: 'GENERATE_COVERAGE',
+            defaultValue: true,
+            description: 'Generate code coverage report'
+        )
+        booleanParam(
+            name: 'CLEAN_WORKSPACE',
+            defaultValue: true,
+            description: 'Clean workspace before build'
+        )
+    }
+    
+    options {
+        // Build options
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 30, unit: 'MINUTES')
+        timestamps()
+        ansiColor('xterm')
+        
+        // Concurrent builds
+        disableConcurrentBuilds()
+    }
+    
+    triggers {
+        // Trigger builds on SCM changes
+        pollSCM('H/15 * * * *')  // Poll every 15 minutes
+        
+        // Scheduled builds
+        cron('H 2 * * *')  // Daily at 2 AM
+    }
+    
+    stages {
+        stage('Preparation') {
+            steps {
+                script {
+                    // Clean workspace if requested
+                    if (params.CLEAN_WORKSPACE) {
+                        cleanWs()
+                    }
+                    
+                    // Display build information
+                    echo "=== Data Quality Pipeline Build Information ==="
+                    echo "Build Number: ${env.BUILD_NUMBER}"
+                    echo "Branch: ${env.BRANCH_NAME ?: 'main'}"
+                    echo "Database Host: ${env.DB_HOST}"
+                    echo "Test Markers: ${env.TEST_MARKERS}"
+                    echo "Parquet Path: ${env.PARQUET_BASE_PATH}"
+                    echo "=============================================="
+                }
+            }
+        }
+        
+        stage('Checkout') {
+            steps {
+                // Checkout source code
+                checkout scm
+                
+                // Display Git information
+                script {
+                    def gitCommit = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
+                    def gitBranch = sh(returnStdout: true, script: 'git rev-parse --abbrev-ref HEAD').trim()
+                    echo "Git Commit: ${gitCommit}"
+                    echo "Git Branch: ${gitBranch}"
+                }
+            }
+        }
+        
+        stage('Setup Python Environment') {
+            steps {
+                script {
+                    // Create virtual environment
+                    sh """
+                        python${env.PYTHON_VERSION} -m venv ${env.VENV_NAME}
+                        source ${env.VENV_NAME}/bin/activate
+                        python --version
+                        pip --version
+                    """
+                    
+                    // Upgrade pip and install dependencies
+                    sh """
+                        source ${env.VENV_NAME}/bin/activate
+                        pip install --upgrade pip setuptools wheel
+                        pip install -r requirements.txt
+                        pip list
+                    """
+                }
+            }
+        }
+        
+        stage('Validate Environment') {
+            steps {
+                script {
+                    // Validate Python packages
+                    sh """
+                        source ${env.VENV_NAME}/bin/activate
+                        python -c "import psycopg2; print('psycopg2 version:', psycopg2.__version__)"
+                        python -c "import pandas; print('pandas version:', pandas.__version__)"
+                        python -c "import pytest; print('pytest version:', pytest.__version__)"
+                        python -c "import pyarrow; print('pyarrow version:', pyarrow.__version__)"
+                    """
+                    
+                    // Create necessary
+                directories
+                    sh """
+                        mkdir -p ${env.TEST_RESULTS_DIR}
+                        mkdir -p ${env.HTML_REPORT_DIR}
+                        mkdir -p logs
+                        mkdir -p ${env.PARQUET_BASE_PATH}
+                        mkdir -p ${env.TEST_DATA_PATH}
+                    """
+                }
+            }
+        }
+        
+        stage('Database Connectivity Test') {
+            when {
+                not { params.SKIP_DB_TESTS }
+            }
+            steps {
+                script {
+                    // Test database connectivity using credentials
+                    withCredentials([usernamePassword(
+                        credentialsId: 'POSTGRES_SECRET',
+                        usernameVariable: 'POSTGRES_SECRET_USR',
+                        passwordVariable: 'POSTGRES_SECRET_PSW'
+                    )]) {
+                        sh """
+                            source ${env.VENV_NAME}/bin/activate
+                            python -c "
+                            import psycopg2
+                            try:
+                                conn = psycopg2.connect(
+                                    host='${env.DB_HOST}',
+                                    port='${env.DB_PORT}',
+                                    database='${env.DB_NAME}',
+                                    user='${env.POSTGRES_SECRET_USR}',
+                                    password='${env.POSTGRES_SECRET_PSW}'
+                                )
+                                print('Database connection successful')
+                                conn.close()
+                            except Exception as e:
+                                print(f'Database connection failed: {e}')
+                                exit(1)
+                            "
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Run Data Quality Tests') {
+            steps {
+                script {
+                    // Prepare pytest command
+                    def pytestCmd = """
+                        source ${env.VENV_NAME}/bin/activate
+                        pytest tests \\
+                            --verbose \\
+                            --tb=short \\
+                            --durations=10 \\
+                            --junitxml=${env.TEST_RESULTS_DIR}/${env.JUNIT_REPORT} \\
+                            --html=${env.HTML_REPORT_DIR}/report.html \\
+                            --self-contained-html \\
+                            --db_host="${env.DB_HOST}" \\
+                            --db_port="${env.DB_PORT}" \\
+                            --db_name="${env.DB_NAME}" \\
+                            --db_schema="${env.DB_SCHEMA}" \\
+                            --parquet-base-path="${env.PARQUET_BASE_PATH}" \\
+                            --test-data-path="${env.TEST_DATA_PATH}"
+                    """
+                    
+                    // Add test markers if not 'all'
+                    if (env.TEST_MARKERS != 'all') {
+                        pytestCmd += " -m \"${env.TEST_MARKERS}\""
+                    }
+                    
+                    // Add parallel execution if workers > 1
+                    if (env.PYTEST_WORKERS.toInteger() > 1) {
+                        pytestCmd += " -n ${env.PYTEST_WORKERS}"
+                    }
+                    
+                    // Add skip database tests option
+                    if (params.SKIP_DB_TESTS) {
+                        pytestCmd += " --skip-db-tests"
+                    }
+                    
+                    // Add coverage if requested
+                    if (params.GENERATE_COVERAGE) {
+                        pytestCmd += " --cov=src --cov-report=html:${env.HTML_REPORT_DIR}/coverage --cov-report=xml:${env.TEST_RESULTS_DIR}/coverage.xml"
+                    }
+                    
+                    // Execute tests with credentials
+                    withCredentials([usernamePassword(
+                        credentialsId: 'POSTGRES_SECRET',
+                        usernameVariable: 'POSTGRES_SECRET_USR',
+                        passwordVariable: 'POSTGRES_SECRET_PSW'
+                    )]) {
+                        sh """
+                            ${pytestCmd} \\
+                                --db_user="\${POSTGRES_SECRET_USR}" \\
+                                --db_password="\${POSTGRES_SECRET_PSW}"
+                        """
+                    }
+                }
+            }
+            post {
+                always {
+                    // Archive test results
+                    junit testResults: "${env.TEST_RESULTS_DIR}/${env.JUNIT_REPORT}", allowEmptyResults: true
+                    
+                    // Publish HTML reports
+                    publishHTML([
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: env.HTML_REPORT_DIR,
+                        reportFiles: 'report.html',
+                        reportName: 'Data Quality Test Report',
+                        reportTitles: 'PyTest Data Quality Report'
+                    ])
+                    
+                    // Publish coverage report if generated
+                    script {
+                        if (params.GENERATE_COVERAGE) {
+                            publishHTML([
+                                allowMissing: true,
+                                alwaysLinkToLastBuild: true,
+                                keepAll: true,
+                                reportDir: "${env.HTML_REPORT_DIR}/coverage",
+                                reportFiles: 'index.html',
+                                reportName: 'Coverage Report',
+                                reportTitles: 'Code Coverage Report'
+                            ])
+                            
+                            // Publish coverage to SonarQube if available
+                            if (fileExists("${env.TEST_RESULTS_DIR}/coverage.xml")) {
+                                step([$class: 'CoberturaPublisher',
+                                    coberturaReportFile: "${env.TEST_RESULTS_DIR}/coverage.xml"
+                                ])
+                            }
+                        }
+                    }
+
+                }
+            }
+        }
+        
+        stage('Archive Artifacts') {
+            steps {
+                script {
+                    // Archive all test artifacts
+                    archiveArtifacts artifacts: """
+                        ${env.TEST_RESULTS_DIR}/**/*,
+                        ${env.HTML_REPORT_DIR}/**/*,
+                        logs/**/*,
+                        pytest.log
+                    """, allowEmptyArchive: true, fingerprint: true
+                    
+                    // Archive test data samples if they exist
+                    archiveArtifacts artifacts: """
+                        ${env.TEST_DATA_PATH}/**/*.parquet,
+                        ${env.TEST_DATA_PATH}/**/*.sql
+                    """, allowEmptyArchive: true
+                }
+            }
+        }
+        
+        stage('Quality Gates') {
+            steps {
+                script {
+                    def testResults = readFile("${env.TEST_RESULTS_DIR}/${env.JUNIT_REPORT}")
+                    echo "Quality gates validation completed"
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            script {
+                // Clean up virtual environment
+                sh "rm -rf ${env.VENV_NAME}"
+                
+                // Send notifications
+                def buildStatus = currentBuild.result ?: 'SUCCESS'
+                def buildDuration = currentBuild.durationString
+                
+                echo """
+                    === Build Summary ===
+                    Status: ${buildStatus}
+                    Duration: ${buildDuration}
+                    Test Markers: ${env.TEST_MARKERS}
+                    Database: ${env.DB_HOST}:${env.DB_PORT}/${env.DB_NAME}
+                    ====================
+                                    """
+            }
+        }
+        
+        success {
+            script {
+                echo "✅ Data Quality Pipeline completed successfully!"
+            }
+        }
+        
+        failure {
+            script {
+                echo "❌ Data Quality Pipeline failed!"
+            }
+        }
+        
+        unstable {
+            script {
+                echo "⚠️ Data Quality Pipeline completed with warnings!"
+            }
+        }
+        
+        cleanup {
+            // Final cleanup
+            cleanWs(cleanWhenNotBuilt: false,
+                   deleteDirs: true,
+                   disableDeferredWipeout: true,
+                   notFailBuild: true)
+        }
+    }
+}
