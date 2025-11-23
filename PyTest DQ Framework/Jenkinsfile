@@ -9,16 +9,20 @@ pipeline {
         // Test configuration
         TEST_RESULTS_DIR = 'test_results'
         HTML_REPORT_DIR = 'html_report'
-        JUNIT_REPORT = 'junit_report.xml'
-        
+
         // Database configuration (non-sensitive)
         DB_HOST = "${params.DB_HOST ?: 'localhost'}"
-        DB_PORT = "${params.DB_PORT ?: '5432'}"
-        DB_NAME = "${params.DB_NAME ?: 'test_database'}"
+        DB_PORT = "${params.DB_PORT ?: '5434'}"
+        DB_NAME = "${params.DB_NAME ?: 'mydatabase'}"
         DB_SCHEMA = "${params.DB_SCHEMA ?: 'public'}"
+
+        PARQUET_ROOT_PATH = "${params.PARQUET_ROOT_PATH ?: '/parquet_data'}"
+        FACILITY_NAME_MIN_TIME_PATH = "${params.FACILITY_NAME_MIN_TIME_PATH ?: ''}"
+        FACILITY_TYPE_AVG_TIME_PATH = "${params.FACILITY_TYPE_AVG_TIME_PATH ?: ''}"
+        PATIENT_SUM_TREATMENT_COST_PATH = "${params.PATIENT_SUM_TREATMENT_COST_PATH ?: ''}"
         
         // File paths
-        PARQUET_BASE_PATH = "${params.PARQUET_BASE_PATH ?: './test_data/parquet'}"
+        PARQUET_BASE_PATH = "${params.PARQUET_BASE_PATH ?: './parquet_data'}"
         TEST_DATA_PATH = "${params.TEST_DATA_PATH ?: './test_data'}"
         
         // Test execution options
@@ -35,7 +39,7 @@ pipeline {
         )
         string(
             name: 'DB_PORT',
-            defaultValue: '5432',
+            defaultValue: '5434',
             description: 'PostgreSQL database port'
         )
         string(
@@ -51,14 +55,24 @@ pipeline {
         
         // File path parameters
         string(
-            name: 'PARQUET_BASE_PATH',
-            defaultValue: './test_data/parquet',
-            description: 'Base path for Parquet files'
+            name: 'PARQUET_ROOT_PATH',
+            defaultValue: '/parquet_data',
+            description: 'Root path for parquet data directories'
         )
         string(
-            name: 'TEST_DATA_PATH',
-            defaultValue: './test_data',
-            description: 'Base path for test data files'
+            name: 'FACILITY_NAME_MIN_TIME_PATH',
+            defaultValue: '',
+            description: 'Specific path for facility_name_min_time_spent_per_visit_date (optional)'
+        )
+        string(
+            name: 'FACILITY_TYPE_AVG_TIME_PATH',
+            defaultValue: '',
+            description: 'Specific path for facility_type_avg_time_spent_per_visit_date (optional)'
+        )
+        string(
+            name: 'PATIENT_SUM_TREATMENT_COST_PATH',
+            defaultValue: '',
+            description: 'Specific path for patient_sum_treatment_cost_per_facility_type (optional)'
         )
         
         // Test execution parameters
@@ -247,7 +261,6 @@ pipeline {
                             --verbose \\
                             --tb=short \\
                             --durations=10 \\
-                            --junitxml=${env.TEST_RESULTS_DIR}/${env.JUNIT_REPORT} \\
                             --html=${env.HTML_REPORT_DIR}/report.html \\
                             --self-contained-html \\
                             --db_host="${env.DB_HOST}" \\
@@ -295,8 +308,7 @@ pipeline {
             post {
                 always {
                     // Archive test results
-                    junit testResults: "${env.TEST_RESULTS_DIR}/${env.JUNIT_REPORT}", allowEmptyResults: true
-                    
+                    archiveArtifacts artifacts: "${env.TEST_RESULTS_DIR}/**/*", allowEmptyArchive: true                    
                     // Publish HTML reports
                     publishHTML([
                         allowMissing: false,
@@ -354,14 +366,7 @@ pipeline {
             }
         }
         
-        stage('Quality Gates') {
-            steps {
-                script {
-                    def testResults = readFile("${env.TEST_RESULTS_DIR}/${env.JUNIT_REPORT}")
-                    echo "Quality gates validation completed"
-                }
-            }
-        }
+       
     }
     
     post {

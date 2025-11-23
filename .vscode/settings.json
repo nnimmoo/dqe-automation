@@ -1,0 +1,6 @@
+{
+    "python.analysis.extraPaths": [
+        "./PyTest DQ Framework/src/connectors/postgres",
+        "./PyTest DQ Framework/src/connectors/file_system"
+    ]
+}
