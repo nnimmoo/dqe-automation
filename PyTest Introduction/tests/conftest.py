@@ -17,8 +17,10 @@ def path_to_file():
     """
     Returns the path to the CSV file. 
     This acts as the source for the csv_data fixture.
+    P.S: In a real-world scenario, this could be made configurable. Meaning that the path
+    could be passed via command line or environment variable. Just for simplicity, it's hardcoded here. 
+    But still changes accordingly what was asked. Hope its correct now :)
     """
-    # Update this path to point to your actual file location
     return "../src/data/data.csv"
 
 # Fixture to read the CSV file
