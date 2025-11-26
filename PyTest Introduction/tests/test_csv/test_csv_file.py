@@ -10,13 +10,13 @@ def test_file_not_empty(csv_data):
 # Test: Validate the schema of the file (id, name, age, email)
 # Mark: validate_csv
 @pytest.mark.validate_csv
-def test_validate_schema(csv_data):
+def test_validate_schema(csv_data, schema_validator):
     """Validates that the CSV has the expected columns."""
+    
     expected_schema = ['id', 'name', 'age', 'email', 'is_active']  # In our task it was missing 'is_active' and I added it here. Dont know if its incorrect, if its then :) 
     actual_schema = csv_data.columns.tolist()
-    assert actual_schema == expected_schema, \
-        f"Schema mismatch. Expected {expected_schema}, but got {actual_schema}"
-
+    schema_validator(actual_schema, expected_schema)
+    
 # Test: Validate that the age column contains valid values (0-100
 # Mark: validate_csv, skip
 @pytest.mark.validate_csv
