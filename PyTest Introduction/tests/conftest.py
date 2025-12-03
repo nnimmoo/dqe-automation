@@ -13,30 +13,19 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.unmarked)
 
 @pytest.fixture(scope="session")
-def path_to_file():
+def read_csv_file():
     """
-    Returns the path to the CSV file. 
-    This acts as the source for the csv_data fixture.
-    P.S: In a real-world scenario, this could be made configurable. Meaning that the path
-    could be passed via command line or environment variable. Just for simplicity, it's hardcoded here. 
-    But still changes accordingly what was asked. Hope its correct now :)
+    Factory fixture.
+    Returns a FUNCTION that accepts a file path and returns a DataFrame.
     """
-    return "../src/data/data.csv"
-
-# Fixture to read the CSV file
-@pytest.fixture(scope="session")
-def csv_data(path_to_file):
-    """
-    Reads the data from the CSV file and returns it as a pandas DataFrame.
-    The fixture has a 'session' scope, so the file is only read once per test session.
-    """
-    # Path is relative to the tests directory where pytest is run
-#   file_path = "../src/data/data.csv"
-    try:
-        df = pd.read_csv(path_to_file)
-        return df
-    except FileNotFoundError:
-        pytest.fail(f"The data file was not found at path: {path_to_file}", pytrace=False)
+    def _read_csv(path_to_file):
+        try:
+            df = pd.read_csv(path_to_file)
+            return df
+        except FileNotFoundError:
+            pytest.fail(f"The data file was not found at path: {path_to_file}", pytrace=False)
+    
+    return _read_csv
 
 @pytest.fixture(scope="session")
 def schema_validator():
