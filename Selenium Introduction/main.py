@@ -12,14 +12,15 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 class SeleniumWebDriverContextManager:
     def __init__(self):
-
+        pass
     def __enter__(self):
-
+        pass
     def __exit__(self, exc_type, exc_value, traceback):
+        pass
 
-
-if __name__ == "__main__":
-    with SeleniumWebDriverContextManager() as driver:
+# if __name__ == "__main__":
+    # with SeleniumWebDriverContextManager() as driver:
         # file_path = ...
         # drivet.get(...)
         # ...
+    
