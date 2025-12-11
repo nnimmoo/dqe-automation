@@ -55,7 +55,7 @@ class helper:
                     df[col] = df[col].astype(str)
 
             if filter_date:
-                df = df[df['Visit Date'] == filter_date]
+                df = df[df['Visit Date'] >= filter_date]
                 print(f"[DONE] Filtered Parquet data by date: {filter_date}")
 
             print(f"[DONE] Parquet Data Loaded: {len(df)} rows.")
